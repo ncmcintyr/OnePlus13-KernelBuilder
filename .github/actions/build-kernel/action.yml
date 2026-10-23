@@ -2197,6 +2197,121 @@ runs:
         echo "✅ Nethunter inline configs added"
         echo "::endgroup::"
 
+    - name: Add OP13 SwissArmy configs
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Add OP13 SwissArmy configs"
+
+        DEF="$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+
+        cat >> "$DEF" <<'EOF'
+
+        # ============================================================
+        # OP13 SwissArmy - USB gadget functionality
+        # ============================================================
+
+        CONFIG_USB_GADGET=y
+        CONFIG_USB_CONFIGFS=y
+
+        # HID - keyboard, mouse, gamepad/custom HID
+        CONFIG_USB_CONFIGFS_F_HID=y
+
+        # Phone as USB disk / bootable USB media
+        CONFIG_USB_CONFIGFS_MASS_STORAGE=y
+
+        # USB serial
+        CONFIG_USB_CONFIGFS_SERIAL=y
+        CONFIG_USB_CONFIGFS_ACM=y
+
+        # USB networking
+        CONFIG_USB_CONFIGFS_NCM=y
+        CONFIG_USB_CONFIGFS_ECM=y
+        CONFIG_USB_CONFIGFS_ECM_SUBSET=y
+        CONFIG_USB_CONFIGFS_RNDIS=y
+        CONFIG_USB_CONFIGFS_EEM=y
+
+        # FunctionFS / custom userspace USB functions
+        CONFIG_USB_CONFIGFS_F_FS=y
+
+        # Audio gadget
+        CONFIG_USB_CONFIGFS_F_UAC1=y
+        CONFIG_USB_CONFIGFS_F_UAC2=y
+
+        # MIDI gadget
+        CONFIG_USB_CONFIGFS_F_MIDI=y
+
+        # USB webcam gadget
+        CONFIG_USB_CONFIGFS_F_UVC=y
+
+        # ============================================================
+        # Filesystems useful for NetHunter / boot images / Linux
+        # ============================================================
+
+        CONFIG_BLK_DEV_LOOP=y
+        CONFIG_SQUASHFS=y
+        CONFIG_ISO9660_FS=y
+        CONFIG_UDF_FS=y
+        CONFIG_EXFAT_FS=y
+        CONFIG_NTFS3_FS=y
+
+        # ============================================================
+        # Containers / Linux userspace
+        # ============================================================
+
+        CONFIG_NAMESPACES=y
+        CONFIG_UTS_NS=y
+        CONFIG_IPC_NS=y
+        CONFIG_USER_NS=y
+        CONFIG_PID_NS=y
+        CONFIG_NET_NS=y
+        CONFIG_CGROUPS=y
+        CONFIG_SECCOMP=y
+        CONFIG_SECCOMP_FILTER=y
+        CONFIG_OVERLAY_FS=y
+        CONFIG_FUSE_FS=y
+
+        # ============================================================
+        # Advanced networking
+        # ============================================================
+
+        CONFIG_TUN=y
+        CONFIG_VETH=y
+        CONFIG_BRIDGE=y
+        CONFIG_VLAN_8021Q=y
+        CONFIG_MACVLAN=y
+        CONFIG_IPVLAN=y
+        CONFIG_VXLAN=y
+        CONFIG_NET_IPGRE=y
+
+        # ============================================================
+        # Windows/Wine gaming
+        # NTSYNC is already enabled elsewhere; keep prerequisites sane
+        # ============================================================
+
+        CONFIG_MEMFD_CREATE=y
+        CONFIG_TMPFS=y
+        CONFIG_TMPFS_XATTR=y
+        CONFIG_TMPFS_POSIX_ACL=y
+
+        # ============================================================
+        # Virtualization - retain/expose where supported by this tree
+        # ============================================================
+
+        CONFIG_VIRTUALIZATION=y
+        CONFIG_KVM=y
+        CONFIG_VHOST=y
+        CONFIG_VHOST_NET=y
+        CONFIG_VHOST_VSOCK=y
+        CONFIG_VIRTIO=y
+        CONFIG_VIRTIO_PCI=y
+        CONFIG_VIRTIO_BLK=y
+        CONFIG_VIRTIO_NET=y
+
+        EOF
+
+        echo "✅ OP13 SwissArmy configs added"
+        echo "::endgroup::"
     # External Wi-Fi adapter drivers, ported from EmberHeart's
     # .github/kernel_modules/action.yml. Built as loadable modules (=m) and
     # shipped in a separate kernel_modules ZIP rather than in the Image, so
@@ -3519,6 +3634,24 @@ runs:
         if [ "$OP_NTSYNC" = "true" ]; then
           assert_config "CONFIG_NTSYNC=y"
         fi
+        # OP13 SwissArmy hard requirements.
+        # Fail rather than ship a kernel that silently lost USB Arsenal support.
+        assert_config "CONFIG_USB_GADGET=y"
+        assert_config "CONFIG_USB_CONFIGFS=y"
+        assert_config "CONFIG_USB_CONFIGFS_F_HID=y"
+        assert_config "CONFIG_USB_CONFIGFS_MASS_STORAGE=y"
+        assert_config "CONFIG_USB_CONFIGFS_F_FS=y"
+
+        assert_config "CONFIG_USB_CONFIGFS_NCM=y"
+        assert_config "CONFIG_USB_CONFIGFS_ECM=y"
+        assert_config "CONFIG_USB_CONFIGFS_RNDIS=y"
+
+        assert_config "CONFIG_BLK_DEV_LOOP=y"
+
+        assert_config "CONFIG_TUN=y"
+        assert_config "CONFIG_NET_NS=y"
+
+        assert_config "CONFIG_NTSYNC=y"
         if [ "$OP_BBR3" = "true" ] || [ "$OP_BBR" = "true" ]; then
           assert_config "CONFIG_TCP_CONG_BBR=y"
         fi
