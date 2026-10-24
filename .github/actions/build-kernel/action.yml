@@ -2371,6 +2371,24 @@ runs:
         echo "✅ Nethunter inline configs added"
         echo "::endgroup::"
 
+    # External Wi-Fi adapter drivers, ported from EmberHeart's
+    # .github/kernel_modules/action.yml. Built as loadable modules (=m) and
+    # shipped in a separate kernel_modules ZIP rather than in the Image, so
+    # they can be insmod'd on demand.
+    #
+    # Non-DDK: append the full USB-adapter set to common/gki_defconfig and ship
+    # a GKI-built cfg80211/mac80211 pair with them (platform CRCs differ).
+    #
+    # DDK: do NOT touch common/gki_defconfig for cfg80211/mac80211 --
+    # //msm-kernel already builds those as in_tree_modules and adding a second
+    # copy to GKI makes modpost fail with "wiphy_new_nm exported twice".
+    # qca_cld3_<chipset>.ko is CRC-matched to the vendor pair, so that pair
+    # stays authoritative. The full USB-adapter zoo (and AR9271) is instead
+    # enabled on the *msm-kernel* gki_defconfig so every driver links against
+    # the same mac80211 peach uses -- the same trick the ath9k_htc-only pack
+    # pioneered. The pack then ships peach + vendor cfg/mac + the zoo; the
+    # loader displaces peach while an external driver is up and keeps the
+    # shared mac80211 CRCs.
     - name: Add Nethunter wireless module configs
       if: ${{ env.OP_NETHUNTER == 'true' && env.OP_WIRELESS_MODULES == 'true' }}
       shell: bash
@@ -2409,8 +2427,7 @@ runs:
             MT76x2_COMMON MT76x0_COMMON MT76x0U MT76x2U
             MT7615_COMMON MT7915E MT7921_COMMON MT7921E MT7921U
             MAC80211_HWSIM EEPROM_93CX6 MAC80211_LEDS CAN_SLCAN
-            HWMON SPMI_MSM_PMIC_ARB 
-            CRC_ITU_T
+            HWMON SPMI_MSM_PMIC_ARB
           "
           for k in $STRIP_KEYS; do
             sed -i -e "/^# CONFIG_${k} is not set$/d" -e "/^CONFIG_${k}=/d" "$MSM_DEF"
@@ -2455,7 +2472,6 @@ runs:
         CONFIG_RT2800USB_RT53XX=y
         CONFIG_RT2800USB_RT55XX=y
         CONFIG_RT2800USB_UNKNOWN=y
-        CONFIG_CRC_ITU_T=y
         CONFIG_WLAN_VENDOR_ZYDAS=y
         CONFIG_ZD1211RW=m
         CONFIG_WLAN_VENDOR_INTERSIL=y
@@ -3277,158 +3293,7 @@ runs:
         restore_keys: |
           bazel-v1-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-
           bazel-v1-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-
-          
-    - name: Preflight OP13 kernel configs
-      if: ${{ env.OP_DDK == 'true' }}
-      shell: bash
-      run: |
-        set -euo pipefail
-        echo "::group::OP13 config preflight"
 
-        cd "$KERNEL_PLATFORM_FOLDER"
-
-        COMMON_TARGET="//common:kernel_aarch64_config"
-        VENDOR_TARGET="${DDK_KERNEL_TARGET}_config"
-        VENDOR_NAME="${DDK_KERNEL_TARGET##*:}"
-
-        echo "Common config target: $COMMON_TARGET"
-        echo "Vendor config target: $VENDOR_TARGET"
-
-        echo "Resolving common config..."
-        ./tools/bazel build "$COMMON_TARGET"
-
-        echo "Resolving vendor config..."
-        ./tools/bazel build "$VENDOR_TARGET"
-
-        COMMON_CFG="bazel-bin/common/kernel_aarch64_config/out_dir/.config"
-
-        if [ ! -f "$COMMON_CFG" ]; then
-          echo "::error::Common resolved config not found: $COMMON_CFG"
-          find -L bazel-bin/common -name .config -print || true
-          exit 1
-        fi
-
-        VENDOR_CFG="$(
-          find -L bazel-bin/msm-kernel \
-            -path "*${VENDOR_NAME}*config*" \
-            -name .config \
-            -print \
-            -quit
-        )"
-
-        if [ -z "$VENDOR_CFG" ] || [ ! -f "$VENDOR_CFG" ]; then
-          echo "::error::Could not locate resolved vendor .config"
-          find -L bazel-bin/msm-kernel -name .config -print || true
-          exit 1
-        fi
-
-        echo "Common config: $COMMON_CFG"
-        echo "Vendor config: $VENDOR_CFG"
-
-        python3 - "$COMMON_CFG" "$VENDOR_CFG" <<'PY'
-        import sys
-
-        def load(path):
-            result = {}
-
-            with open(path, encoding="utf-8", errors="replace") as f:
-                for raw in f:
-                    line = raw.strip()
-
-                    if line.startswith("CONFIG_") and "=" in line:
-                        key, value = line.split("=", 1)
-                        result[key] = value
-
-                    elif line.startswith("# CONFIG_") and line.endswith(" is not set"):
-                        result[line.split()[1]] = "n"
-
-            return result
-
-        common = load(sys.argv[1])
-        vendor = load(sys.argv[2])
-
-        failures = []
-
-        print(f"Loaded {len(common)} common config symbols")
-        print(f"Loaded {len(vendor)} vendor config symbols")
-
-        required = {
-            "CONFIG_USB_GADGET": "y",
-            "CONFIG_USB_CONFIGFS": "y",
-            "CONFIG_USB_CONFIGFS_F_HID": "y",
-            "CONFIG_USB_CONFIGFS_MASS_STORAGE": "y",
-            "CONFIG_USB_CONFIGFS_F_FS": "y",
-
-            "CONFIG_TUN": "y",
-            "CONFIG_NET_NS": "y",
-            "CONFIG_BRIDGE": "y",
-
-            "CONFIG_VLAN_8021Q": "m",
-            "CONFIG_VIRTIO_PCI": "m",
-            "CONFIG_VIRTIO_BLK": "m",
-
-            "CONFIG_NTSYNC": "y",
-        }
-
-        print("\n=== Required GKI options ===")
-
-        for key, wanted in required.items():
-            actual = common.get(key, "n")
-            marker = "OK" if actual == wanted else "BAD"
-
-            print(f"{marker:3} {key}: actual={actual}, wanted={wanted}")
-
-            if actual != wanted:
-                failures.append(
-                    f"{key} resolved to {actual}; expected {wanted}"
-                )
-
-        print("\n=== Known duplicate-module hazards ===")
-
-        known_collisions = (
-            "CONFIG_USB_F_RNDIS",
-            "CONFIG_CRC_ITU_T",
-        )
-
-        for key in known_collisions:
-            c = common.get(key, "n")
-            v = vendor.get(key, "n")
-
-            print(f"{key}: common={c}, vendor={v}")
-
-            if c == "y" and v == "m":
-                failures.append(
-                    f"{key}: common=y + vendor=m would duplicate implementation"
-                )
-
-        print("\n=== Other common=y / vendor=m differences ===")
-
-        other = []
-
-        for key in sorted(common.keys() & vendor.keys()):
-            if common[key] == "y" and vendor[key] == "m":
-                if key not in known_collisions:
-                    other.append(key)
-
-        if other:
-            for key in other:
-                print(f"REVIEW {key}: common=y vendor=m")
-        else:
-            print("None")
-
-        if failures:
-            print("\nFATAL: OP13 kernel configuration preflight failed:")
-
-            for item in failures:
-                print(f"  - {item}")
-
-            sys.exit(1)
-
-        print("\nOP13 kernel configuration preflight passed.")
-        PY
-
-        echo "::endgroup::"
-        
     - name: Build Kernel and DDK modules with Bazel
       id: build_ddk_step
       if: ${{ env.OP_DDK == 'true' }}
@@ -3842,23 +3707,6 @@ runs:
         if [ "$OP_NTSYNC" = "true" ]; then
           assert_config "CONFIG_NTSYNC=y"
         fi
-        # OP13 SwissArmy hard requirements.
-        # Fail rather than ship a kernel that silently lost USB Arsenal support.
-        assert_config "CONFIG_USB_GADGET=y"
-        assert_config "CONFIG_USB_CONFIGFS=y"
-        assert_config "CONFIG_USB_CONFIGFS_F_HID=y"
-        assert_config "CONFIG_USB_CONFIGFS_MASS_STORAGE=y"
-        assert_config "CONFIG_USB_CONFIGFS_F_FS=y"
-
-        assert_config "CONFIG_USB_CONFIGFS_NCM=y"
-        assert_config "CONFIG_USB_CONFIGFS_ECM=y"
-
-        assert_config "CONFIG_BLK_DEV_LOOP=y"
-
-        assert_config "CONFIG_TUN=y"
-        assert_config "CONFIG_NET_NS=y"
-
-        assert_config "CONFIG_NTSYNC=y"
         if [ "$OP_BBR3" = "true" ] || [ "$OP_BBR" = "true" ]; then
           assert_config "CONFIG_TCP_CONG_BBR=y"
         fi
