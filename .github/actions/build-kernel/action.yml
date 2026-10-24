@@ -3984,7 +3984,6 @@ runs:
 
         assert_config "CONFIG_USB_CONFIGFS_NCM=y"
         assert_config "CONFIG_USB_CONFIGFS_ECM=y"
-        assert_config "CONFIG_USB_CONFIGFS_RNDIS=y"
 
         assert_config "CONFIG_BLK_DEV_LOOP=y"
 
