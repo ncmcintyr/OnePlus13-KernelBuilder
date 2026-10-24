@@ -2452,7 +2452,7 @@ runs:
         CONFIG_TUN=y
         CONFIG_VETH=y
         CONFIG_BRIDGE=y
-        CONFIG_VLAN_8021Q=y
+        CONFIG_VLAN_8021Q=m
         CONFIG_MACVLAN=y
         CONFIG_IPVLAN=y
         CONFIG_VXLAN=y
@@ -2478,8 +2478,8 @@ runs:
         CONFIG_VHOST_NET=y
         CONFIG_VHOST_VSOCK=y
         CONFIG_VIRTIO=y
-        CONFIG_VIRTIO_PCI=y
-        CONFIG_VIRTIO_BLK=y
+        CONFIG_VIRTIO_PCI=m
+        CONFIG_VIRTIO_BLK=m
         CONFIG_VIRTIO_NET=y
 
         EOF
